@@ -1,0 +1,24 @@
+CERTIDÃO DE TEMPO DE CONTRIBUIÇÃO
+
+CPF: 123.456.789-00
+NOME: MARIA JOSÉ SILVA SANTOS
+DATA NASCIMENTO: 15/03/1965
+
+VÍNCULOS EMPREGATÍCIOS:
+
+EMPRESA ABC LTDA
+01/01/2010    31/12/2020    2.500,00
+
+EMPRESA XYZ S/A
+01/01/2021    --            3.200,00
+
+EMPRESA DEF COMERCIAL LTDA
+15/03/1995    31/12/2009    1.800,00
+
+BENEFÍCIOS:
+- Auxílio-doença (2018-2019)
+- Aposentadoria por idade (solicitada)
+
+OBSERVAÇÕES:
+Contribuição total: 25 anos e 3 meses
+Situação: Ativo 
