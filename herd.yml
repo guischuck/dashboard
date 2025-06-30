@@ -1,0 +1,5 @@
+integrations:
+  forge:
+    previdia.com.br:
+      site-id: 2767891
+      server-id: 934034

@@ -31,6 +31,8 @@ class Company extends Model
         'is_active',
         'trial_ends_at',
         'subscription_ends_at',
+        'api_key',
+        'razao_social',
     ];
 
     protected $casts = [
@@ -47,6 +49,9 @@ class Company extends Model
         static::creating(function ($company) {
             if (empty($company->slug)) {
                 $company->slug = Str::slug($company->name);
+            }
+            if (empty($company->api_key)) {
+                $company->api_key = Str::random(32);
             }
         });
     }
@@ -70,6 +75,16 @@ class Company extends Model
     public function workflowTemplates(): HasMany
     {
         return $this->hasMany(WorkflowTemplate::class);
+    }
+
+    public function processos(): HasMany
+    {
+        return $this->hasMany(Processo::class, 'id_empresa');
+    }
+
+    public function historicoSituacoes(): HasMany
+    {
+        return $this->hasMany(HistoricoSituacao::class, 'id_empresa');
     }
 
     // Relacionamentos com assinaturas

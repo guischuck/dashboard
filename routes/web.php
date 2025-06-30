@@ -24,10 +24,12 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // Página de Coletas
     Route::get('coletas', [\App\Http\Controllers\CaseController::class, 'coletas'])->name('coletas');
 
-    // Página de Andamentos
-    Route::get('andamentos', function () {
-        return Inertia::render('Andamentos/Index');
-    })->name('andamentos');
+    // Rotas dos Andamentos INSS
+    Route::prefix('andamentos')->name('andamentos.')->middleware('ensure.user.company')->group(function () {
+        Route::get('/', [\App\Http\Controllers\AndamentoController::class, 'index'])->name('index');
+        Route::patch('/{andamento}/marcar-visto', [\App\Http\Controllers\AndamentoController::class, 'marcarVisto'])->name('marcar-visto');
+        Route::post('/marcar-todos-vistos', [\App\Http\Controllers\AndamentoController::class, 'marcarTodosVistos'])->name('marcar-todos-vistos');
+    });
 
     // Rotas do Sistema Jurídico
     Route::prefix('cases')->name('cases.')->group(function () {
@@ -54,6 +56,12 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::get('/{document}/download', [DocumentController::class, 'download'])->name('download');
         Route::post('/{document}/process', [DocumentController::class, 'process'])->name('process');
         Route::get('/case/{case}', [DocumentController::class, 'caseDocuments'])->name('case.documents');
+    });
+
+    // Rotas dos Processos INSS
+    Route::prefix('inss-processes')->name('inss-processes.')->middleware('ensure.user.company')->group(function () {
+        Route::get('/', [\App\Http\Controllers\ProcessoController::class, 'index'])->name('index');
+        Route::get('/{processo}', [\App\Http\Controllers\ProcessoController::class, 'show'])->name('show');
     });
 
     // Rotas de Petições

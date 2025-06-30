@@ -31,6 +31,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'ensure.super.admin' => EnsureSuperAdmin::class,
             'ensure.user.company' => \App\Http\Middleware\EnsureUserBelongsToCompany::class,
+            'api.cors' => \App\Http\Middleware\ApiCors::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {

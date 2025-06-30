@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Settings\PasswordController;
 use App\Http\Controllers\Settings\ProfileController;
+use App\Http\Controllers\Settings\UserController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
@@ -18,4 +19,11 @@ Route::middleware('auth')->group(function () {
     Route::get('settings/appearance', function () {
         return Inertia::render('settings/appearance');
     })->name('appearance');
+
+    // Rotas de usuários
+    Route::get('settings/users', [UserController::class, 'index'])->name('users.index');
+    Route::post('settings/users', [UserController::class, 'store'])->name('users.store');
+    Route::patch('settings/users/{user}/status', [UserController::class, 'updateStatus'])->name('users.update-status');
+    Route::patch('settings/users/{user}/password', [UserController::class, 'resetPassword'])->name('users.reset-password');
+    Route::delete('settings/users/{user}', [UserController::class, 'destroy'])->name('users.destroy');
 });

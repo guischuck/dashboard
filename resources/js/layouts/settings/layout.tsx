@@ -18,6 +18,11 @@ const sidebarNavItems: NavItem[] = [
         icon: null,
     },
     {
+        title: 'Usuários',
+        href: '/settings/users',
+        icon: null,
+    },
+    {
         title: 'Aparência',
         href: '/settings/appearance',
         icon: null,

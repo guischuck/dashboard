@@ -6,6 +6,8 @@ use App\Http\Controllers\Api\EmploymentRelationshipController;
 use App\Http\Controllers\Api\CollectionAttemptController;
 use App\Http\Controllers\Api\DeepSeekChatController;
 use App\Http\Controllers\Api\TaskController;
+use App\Http\Controllers\Api\CompanyApiController;
+use App\Http\Controllers\Api\ProcessoSyncController;
 use App\Http\Controllers\PetitionController;
 use App\Models\User;
 
@@ -37,4 +39,10 @@ Route::middleware('web')->group(function () {
 
 // Petition API routes
 Route::post('/generate-petition', [PetitionController::class, 'generateWithAI'])->name('api.petitions.generate-ai');
-Route::post('/generate-from-template', [PetitionController::class, 'generateFromTemplate'])->name('api.petitions.generate-template'); 
+Route::post('/generate-from-template', [PetitionController::class, 'generateFromTemplate'])->name('api.petitions.generate-template');
+
+// External API routes for Chrome extension (without auth, using API key)
+Route::middleware(['api.cors'])->group(function () {
+    Route::get('/extension/get-id-empresa', [CompanyApiController::class, 'getIdEmpresa']);
+    Route::post('/extension/sync', [ProcessoSyncController::class, 'sync']);
+}); 
