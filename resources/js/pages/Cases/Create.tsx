@@ -1,57 +1,80 @@
-import AppLayout from '@/layouts/app-layout';
-import { type BreadcrumbItem } from '@/types';
-import { Head, useForm } from '@inertiajs/react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { ArrowLeft, Save, Upload, FileText, CheckCircle, AlertCircle } from 'lucide-react';
-import { Link } from '@inertiajs/react';
-import { useState, useRef } from 'react';
+import { Progress } from '@/components/ui/progress';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
+import AppLayout from '@/layouts/app-layout';
+import { type BreadcrumbItem } from '@/types';
+import { Head, Link, router, useForm } from '@inertiajs/react';
+import { AlertCircle, ArrowLeft, Building, CheckCircle, FileText, Loader2, Plus, Upload, User } from 'lucide-react';
+import { useRef, useState } from 'react';
 
-const breadcrumbs: BreadcrumbItem[] = [
-    {
-        title: 'Dashboard',
-        href: '/dashboard',
-    },
-    {
-        title: 'Casos',
-        href: '/cases',
-    },
-    {
-        title: 'Novo Caso',
-        href: '/cases/create',
-    },
-];
+interface VinculoEmpregaticios {
+    empregador: string;
+    cnpj: string;
+    data_inicio: string;
+    data_fim: string;
+}
 
-export default function CreateCase() {
-    const [cnisFile, setCnisFile] = useState<File | null>(null);
-    const [isProcessingCnis, setIsProcessingCnis] = useState(false);
-    const [cnisData, setCnisData] = useState<any>(null);
-    const [cnisError, setCnisError] = useState<string | null>(null);
-    const fileInputRef = useRef<HTMLInputElement>(null);
+interface CNISData {
+    client_name: string;
+    client_cpf: string;
+    vinculos_empregaticios: VinculoEmpregaticios[];
+}
 
-    const { data, setData, post, processing, errors } = useForm({
+interface Props {
+    benefitTypes: Record<string, string>;
+}
+
+export default function CreateCase({ benefitTypes }: Props) {
+    const { data, setData, errors } = useForm({
         client_name: '',
         client_cpf: '',
         benefit_type: '',
-        description: '',
+        notes: '',
+        vinculos_empregaticios: [] as any[],
     });
+
+    const [cnisFile, setCnisFile] = useState<File | null>(null);
+    const [cnisData, setCnisData] = useState<CNISData | null>(null);
+    const [isProcessingCnis, setIsProcessingCnis] = useState(false);
+    const [uploadProgress, setUploadProgress] = useState(0);
+    const [cnisError, setCnisError] = useState<string | null>(null);
+    const [isDragging, setIsDragging] = useState(false);
+
+    const fileInputRef = useRef<HTMLInputElement>(null);
+
+    const breadcrumbs: BreadcrumbItem[] = [
+        { title: 'Casos', href: '/cases' },
+        { title: 'Novo Caso', href: '#' },
+    ];
+
+    const handleDragOver = (e: React.DragEvent) => {
+        e.preventDefault();
+        setIsDragging(true);
+    };
+
+    const handleDragLeave = (e: React.DragEvent) => {
+        e.preventDefault();
+        setIsDragging(false);
+    };
+
+    const handleDrop = (e: React.DragEvent) => {
+        e.preventDefault();
+        setIsDragging(false);
+        const files = e.dataTransfer.files;
+        if (files.length > 0 && files[0].type === 'application/pdf') {
+            setCnisFile(files[0]);
+        }
+    };
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
-        console.log('Arquivo selecionado:', file); // Debug
-        
-        if (file) {
-            if (file.type === 'application/pdf') {
-                setCnisFile(file);
-                setCnisError(null);
-                console.log('PDF válido selecionado:', file.name);
-            } else {
-                setCnisError('Por favor, selecione um arquivo PDF válido.');
-                setCnisFile(null);
-                console.log('Arquivo inválido:', file.type);
-            }
+        if (file && file.type === 'application/pdf') {
+            setCnisFile(file);
         }
     };
 
@@ -59,358 +82,399 @@ export default function CreateCase() {
         fileInputRef.current?.click();
     };
 
-    // Função de teste para verificar autenticação
-    const testAuth = async () => {
-        try {
-            const response = await fetch('/test-no-auth');
-            const result = await response.json();
-            console.log('Test no auth:', result);
-        } catch (error) {
-            console.error('Test no auth error:', error);
-        }
-    };
-
-    // Função de teste para verificar autenticação com middleware
-    const testAuthWithMiddleware = async () => {
-        try {
-            const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
-            const response = await fetch('/api/test-auth', {
-                headers: {
-                    'X-CSRF-TOKEN': csrfToken || '',
-                },
-            });
-            const result = await response.json();
-            console.log('Test with auth:', result);
-        } catch (error) {
-            console.error('Test with auth error:', error);
-        }
-    };
-
     const handleCnisUpload = async () => {
         if (!cnisFile) return;
 
         setIsProcessingCnis(true);
+        setUploadProgress(0);
         setCnisError(null);
 
-        const formData = new FormData();
-        formData.append('cnis_file', cnisFile);
-
-        // Obtém o token CSRF
-        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
-        console.log('CSRF Token:', csrfToken); // Debug
+        const progressInterval = setInterval(() => {
+            setUploadProgress((prev) => {
+                if (prev >= 90) return prev;
+                return prev + Math.random() * 15;
+            });
+        }, 200);
 
         try {
+            const formData = new FormData();
+            formData.append('cnis_file', cnisFile);
+
             const response = await fetch('/api/process-cnis', {
                 method: 'POST',
                 body: formData,
                 headers: {
-                    'X-CSRF-TOKEN': csrfToken || '',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '',
                 },
             });
 
-            console.log('Response status:', response.status); // Debug
-            console.log('Response headers:', response.headers); // Debug
+            const result = await response.json();
 
-            if (response.ok) {
-                const result = await response.json();
-                console.log('Result:', result); // Debug
+            if (result.success && result.data) {
                 setCnisData(result.data);
-                
-                // Preencher automaticamente os campos com os dados extraídos
-                if (result.data) {
-                    setData('client_name', result.data.client_name || '');
-                    setData('client_cpf', result.data.client_cpf || '');
-                    setData('benefit_type', result.data.benefit_type || '');
-                    
-                    // Gera descrição automática baseada nos vínculos
-                    if (result.data.vinculos_empregaticios && result.data.vinculos_empregaticios.length > 0) {
-                        const vinculos = result.data.vinculos_empregaticios;
-                        const totalVinculos = vinculos.length;
-                        const ultimoVinculo = vinculos[vinculos.length - 1];
-                        
-                        let descricao = `Caso de ${result.data.benefit_type?.replace(/_/g, ' ') || 'benefício previdenciário'} para ${result.data.client_name}.\n\n`;
-                        descricao += `Total de vínculos empregatícios: ${totalVinculos}\n`;
-                        descricao += `Último empregador: ${ultimoVinculo.empregador}\n`;
-                        descricao += `Último salário: R$ ${ultimoVinculo.salario}\n`;
-                        
-                        if (vinculos.length > 1) {
-                            descricao += `\nHistórico de vínculos:\n`;
-                            vinculos.forEach((vinculo: any, index: number) => {
-                                descricao += `${index + 1}. ${vinculo.empregador} - ${vinculo.data_inicio} a ${vinculo.data_fim || 'Atual'} - R$ ${vinculo.salario}\n`;
-                            });
-                        }
-                        
-                        setData('description', descricao);
-                    } else {
-                        setData('description', `Caso de ${result.data.benefit_type?.replace(/_/g, ' ') || 'benefício previdenciário'} para ${result.data.client_name}.`);
-                    }
-                }
+                setData({
+                    ...data,
+                    client_name: result.data.client_name || '',
+                    client_cpf: result.data.client_cpf || '',
+                    vinculos_empregaticios: result.data.vinculos_empregaticios || [],
+                });
+                setUploadProgress(100);
             } else {
-                // Log da resposta completa para debug
-                const responseText = await response.text();
-                console.error('Response text:', responseText); // Debug
-                
-                try {
-                    const error = JSON.parse(responseText);
-                    console.error('Error response:', error); // Debug
-                    setCnisError(error.error || 'Erro ao processar o CNIS');
-                } catch (parseError) {
-                    console.error('Parse error:', parseError); // Debug
-                    setCnisError('Erro ao processar o arquivo CNIS: Resposta inválida do servidor');
-                }
+                setCnisError(result.error || 'Erro ao processar o arquivo CNIS');
             }
         } catch (error) {
-            console.error('Fetch error:', error); // Debug
-            setCnisError('Erro ao processar o arquivo CNIS: ' + error);
+            setCnisError('Erro de conexão. Tente novamente.');
         } finally {
+            clearInterval(progressInterval);
             setIsProcessingCnis(false);
         }
     };
 
-    const handleSubmit = async (e: React.FormEvent) => {
+    const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        
-        // Se temos dados do CNIS, vamos gerar a descrição com IA
-        if (cnisData && cnisData.vinculos_empregaticios) {
-            try {
-                const response = await fetch('/api/generate-case-description', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '',
-                    },
-                    body: JSON.stringify({
-                        client_name: data.client_name,
-                        client_cpf: data.client_cpf,
-                        benefit_type: data.benefit_type,
-                        vinculos_empregaticios: cnisData.vinculos_empregaticios,
-                    }),
-                });
-
-                if (response.ok) {
-                    const result = await response.json();
-                    setData('description', result.description);
-                }
-            } catch (error) {
-                console.error('Erro ao gerar descrição:', error);
-            }
-        }
-
-        post('/cases');
+        router.post('/cases', data);
     };
+
+    const addManualVinculo = () => {
+        const newVinculo = {
+            empregador: '',
+            cnpj: '',
+            data_inicio: '',
+            data_fim: '',
+        };
+        const vinculos = Array.isArray(data.vinculos_empregaticios) ? data.vinculos_empregaticios : [];
+        setData('vinculos_empregaticios', [...vinculos, newVinculo]);
+    };
+
+    const updateVinculo = (index: number, field: keyof VinculoEmpregaticios, value: string) => {
+        const vinculos = Array.isArray(data.vinculos_empregaticios) ? data.vinculos_empregaticios : [];
+        const updatedVinculos = [...vinculos];
+        updatedVinculos[index] = { ...updatedVinculos[index], [field]: value };
+        setData('vinculos_empregaticios', updatedVinculos);
+    };
+
+    const removeVinculo = (index: number) => {
+        const vinculos = Array.isArray(data.vinculos_empregaticios) ? data.vinculos_empregaticios : [];
+        const updatedVinculos = vinculos.filter((_, i) => i !== index);
+        setData('vinculos_empregaticios', updatedVinculos);
+    };
+
+    const vinculos = Array.isArray(data.vinculos_empregaticios) ? data.vinculos_empregaticios : [];
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
             <Head title="Novo Caso - Sistema Jurídico" />
-            <div className="flex h-full flex-1 flex-col gap-6 p-6">
-                {/* Header */}
-                <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-4">
+
+            <div className="container mx-auto px-6 py-8">
+                <div className="mx-auto max-w-4xl">
+                    {/* Header */}
+                    <div className="mb-8 flex items-center justify-between">
+                        <div>
+                            <h1 className="text-3xl font-bold text-foreground">Criar Novo Caso</h1>
+                            <p className="mt-2 text-muted-foreground">Faça upload do CNIS ou preencha manualmente os dados do cliente</p>
+                        </div>
                         <Link href="/cases">
-                            <Button variant="outline" size="sm">
-                                <ArrowLeft className="mr-2 h-4 w-4" />
+                            <Button variant="outline" className="gap-2">
+                                <ArrowLeft className="h-4 w-4" />
                                 Voltar
                             </Button>
                         </Link>
-                        <div>
-                            <h1 className="text-3xl font-bold">Novo Caso</h1>
-                            <p className="text-muted-foreground">Crie um novo caso jurídico com extração de CNIS</p>
-                        </div>
                     </div>
-                </div>
 
-                {/* CNIS Upload Section */}
-                <Card>
-                    <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
-                            <FileText className="h-5 w-5" />
-                            Upload do CNIS
-                        </CardTitle>
-                        <CardDescription>
-                            Faça upload do CNIS em PDF para extração automática dos dados do cliente e vínculos empregatícios
-                        </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="space-y-4">
-                            {/* Botões de teste */}
-                            <div className="flex space-x-2 mb-4">
-                                <Button onClick={testAuth} variant="outline" size="sm">
-                                    Testar Rota Sem Auth
-                                </Button>
-                                <Button onClick={testAuthWithMiddleware} variant="outline" size="sm">
-                                    Testar Rota Com Auth
-                                </Button>
-                            </div>
-                            
-                            <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
-                                <Upload className="h-8 w-8 text-gray-400 mx-auto mb-2" />
-                                <p className="text-sm text-gray-600 mb-2">
-                                    Arraste e solte o arquivo CNIS aqui ou clique para selecionar
-                                </p>
-                                
-                                {/* Input de arquivo oculto */}
-                                <input
-                                    ref={fileInputRef}
-                                    type="file"
-                                    accept=".pdf"
-                                    onChange={handleFileChange}
-                                    className="hidden"
-                                />
-                                
-                                {/* Botão para abrir o seletor de arquivo */}
-                                <Button 
-                                    variant="outline" 
-                                    size="sm"
+                    <div className="grid gap-8">
+                        {/* Upload CNIS Section */}
+                        <Card>
+                            <CardHeader>
+                                <CardTitle className="flex items-center gap-2">
+                                    <Upload className="h-5 w-5" />
+                                    Upload do CNIS (Opcional)
+                                </CardTitle>
+                                <CardDescription>Faça upload do arquivo PDF do CNIS para extração automática dos dados</CardDescription>
+                            </CardHeader>
+                            <CardContent className="space-y-6">
+                                {/* Drop Zone */}
+                                <div
+                                    className={`relative cursor-pointer rounded-xl border-2 border-dashed p-8 text-center transition-all duration-300 ${
+                                        isDragging
+                                            ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/30'
+                                            : cnisFile
+                                              ? 'border-green-400 bg-green-50 dark:bg-green-950/30'
+                                              : 'border-border hover:border-blue-400 hover:bg-accent/50'
+                                    } `}
+                                    onDragOver={handleDragOver}
+                                    onDragLeave={handleDragLeave}
+                                    onDrop={handleDrop}
                                     onClick={handleFileClick}
-                                    type="button"
                                 >
-                                    Selecionar Arquivo PDF
-                                </Button>
-                            </div>
+                                    <input ref={fileInputRef} type="file" accept=".pdf" onChange={handleFileChange} className="hidden" />
 
-                            {cnisFile && (
-                                <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                                    <div className="flex items-center space-x-2">
-                                        <FileText className="h-4 w-4 text-blue-600" />
-                                        <span className="text-sm font-medium">{cnisFile.name}</span>
-                                        <span className="text-xs text-gray-500">({(cnisFile.size / 1024 / 1024).toFixed(2)} MB)</span>
-                                    </div>
-                                    <Button
-                                        onClick={handleCnisUpload}
-                                        disabled={isProcessingCnis}
-                                        size="sm"
-                                    >
-                                        {isProcessingCnis ? 'Processando...' : 'Extrair Dados'}
-                                    </Button>
-                                </div>
-                            )}
-
-                            {cnisError && (
-                                <div className="flex items-center space-x-2 p-3 bg-red-50 border border-red-200 rounded-lg">
-                                    <AlertCircle className="h-4 w-4 text-red-600" />
-                                    <span className="text-sm text-red-600">{cnisError}</span>
-                                </div>
-                            )}
-
-                            {cnisData && (
-                                <div className="space-y-4">
-                                    <div className="flex items-center space-x-2 p-3 bg-green-50 border border-green-200 rounded-lg">
-                                        <CheckCircle className="h-4 w-4 text-green-600" />
-                                        <span className="text-sm text-green-600">
-                                            Dados extraídos com sucesso! Os campos foram preenchidos automaticamente.
-                                        </span>
-                                    </div>
-
-                                    {/* Vínculos Empregatícios Extraídos */}
-                                    {cnisData.vinculos_empregaticios && cnisData.vinculos_empregaticios.length > 0 && (
-                                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                                            <h4 className="font-medium text-blue-900 mb-3">Vínculos Empregatícios Extraídos:</h4>
-                                            <div className="space-y-2">
-                                                {cnisData.vinculos_empregaticios.map((vinculo: any, index: number) => (
-                                                    <div key={index} className="bg-white p-3 rounded border">
-                                                        <div className="grid grid-cols-2 gap-2 text-sm text-gray-900">
-                                                            <div><strong>Empregador:</strong> {vinculo.empregador}</div>
-                                                            <div><strong>Início:</strong> {vinculo.data_inicio}</div>
-                                                            <div><strong>Fim:</strong> {vinculo.data_fim || 'Atual'}</div>
-                                                        </div>
-                                                    </div>
-                                                ))}
+                                    {cnisFile ? (
+                                        <div className="space-y-4">
+                                            <FileText className="mx-auto h-12 w-12 text-green-600" />
+                                            <div>
+                                                <h3 className="text-lg font-semibold text-green-800 dark:text-green-200">{cnisFile.name}</h3>
+                                                <p className="text-green-600 dark:text-green-400">{(cnisFile.size / 1024 / 1024).toFixed(2)} MB</p>
+                                            </div>
+                                            {!cnisData && (
+                                                <Button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        handleCnisUpload();
+                                                    }}
+                                                    disabled={isProcessingCnis}
+                                                    className="bg-green-600 hover:bg-green-700"
+                                                >
+                                                    {isProcessingCnis ? (
+                                                        <>
+                                                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                                            Processando...
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <FileText className="mr-2 h-4 w-4" />
+                                                            Extrair Dados
+                                                        </>
+                                                    )}
+                                                </Button>
+                                            )}
+                                        </div>
+                                    ) : (
+                                        <div className="space-y-4">
+                                            <Upload className="mx-auto h-12 w-12 text-muted-foreground" />
+                                            <div>
+                                                <h3 className="text-lg font-semibold">Arraste o arquivo CNIS aqui</h3>
+                                                <p className="text-muted-foreground">ou clique para selecionar (apenas PDF)</p>
                                             </div>
                                         </div>
                                     )}
                                 </div>
-                            )}
-                        </div>
-                    </CardContent>
-                </Card>
 
-                {/* Form */}
-                <Card>
-                    <CardHeader>
-                        <CardTitle>Informações do Caso</CardTitle>
-                        <CardDescription>
-                            Dados do cliente e tipo de benefício
-                        </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                        <form onSubmit={handleSubmit} className="space-y-6">
-                            <div className="grid gap-6 md:grid-cols-2">
-                                {/* Cliente */}
-                                <div className="space-y-2">
-                                    <Label htmlFor="client_name">Nome do Cliente *</Label>
-                                    <Input
-                                        id="client_name"
-                                        value={data.client_name}
-                                        onChange={(e) => setData('client_name', e.target.value)}
-                                        placeholder="Nome completo do cliente"
-                                    />
-                                    {errors.client_name && (
-                                        <p className="text-sm text-red-600">{errors.client_name}</p>
+                                {/* Upload Progress */}
+                                {isProcessingCnis && (
+                                    <div className="space-y-3 rounded-lg bg-blue-50 p-4 dark:bg-blue-950/30">
+                                        <div className="flex items-center justify-between text-sm">
+                                            <span className="font-medium text-blue-700 dark:text-blue-300">Processando arquivo CNIS...</span>
+                                            <span className="text-blue-600 dark:text-blue-400">{uploadProgress.toFixed(0)}%</span>
+                                        </div>
+                                        <Progress value={uploadProgress} className="h-2" />
+                                    </div>
+                                )}
+
+                                {/* Error Message */}
+                                {cnisError && (
+                                    <div className="flex items-start space-x-3 rounded-lg border border-red-200 bg-red-50 p-4 dark:border-red-800 dark:bg-red-950/30">
+                                        <AlertCircle className="mt-0.5 h-5 w-5 flex-shrink-0 text-red-600" />
+                                        <div>
+                                            <p className="font-medium text-red-800 dark:text-red-200">Erro no processamento</p>
+                                            <p className="mt-1 text-sm text-red-700 dark:text-red-300">{cnisError}</p>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Success Message */}
+                                {cnisData && (
+                                    <div className="flex items-start space-x-3 rounded-lg border border-green-200 bg-green-50 p-4 dark:border-green-800 dark:bg-green-950/30">
+                                        <CheckCircle className="mt-0.5 h-5 w-5 flex-shrink-0 text-green-600" />
+                                        <div>
+                                            <p className="font-medium text-green-800 dark:text-green-200">Dados extraídos com sucesso!</p>
+                                            <p className="mt-1 text-sm text-green-700 dark:text-green-300">
+                                                {cnisData.vinculos_empregaticios?.length || 0} vínculos encontrados
+                                            </p>
+                                        </div>
+                                    </div>
+                                )}
+                            </CardContent>
+                        </Card>
+
+                        {/* Form Section */}
+                        <form onSubmit={handleSubmit} className="space-y-8">
+                            {/* Client Data */}
+                            <Card>
+                                <CardHeader>
+                                    <CardTitle className="flex items-center gap-2">
+                                        <User className="h-5 w-5" />
+                                        Dados do Cliente
+                                    </CardTitle>
+                                </CardHeader>
+                                <CardContent className="grid gap-6 md:grid-cols-2">
+                                    <div className="space-y-2">
+                                        <Label htmlFor="client_name">Nome Completo *</Label>
+                                        <Input
+                                            id="client_name"
+                                            value={String(data.client_name || '')}
+                                            onChange={(e) => setData('client_name', e.target.value)}
+                                            placeholder="Digite o nome completo do cliente"
+                                            required
+                                        />
+                                        {errors.client_name && <p className="text-sm text-red-600">{errors.client_name}</p>}
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        <Label htmlFor="client_cpf">CPF *</Label>
+                                        <Input
+                                            id="client_cpf"
+                                            value={String(data.client_cpf || '')}
+                                            onChange={(e) => setData('client_cpf', e.target.value)}
+                                            placeholder="000.000.000-00"
+                                            required
+                                        />
+                                        {errors.client_cpf && <p className="text-sm text-red-600">{errors.client_cpf}</p>}
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        <Label htmlFor="benefit_type">Tipo de Benefício</Label>
+                                        <Select value={data.benefit_type} onValueChange={(value) => setData('benefit_type', value)}>
+                                            <SelectTrigger>
+                                                <SelectValue placeholder="Selecione o tipo de benefício" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {Object.entries(benefitTypes).map(([key, value]) => (
+                                                    <SelectItem key={key} value={key}>
+                                                        {value}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                        {errors.benefit_type && <p className="text-sm text-red-600">{errors.benefit_type}</p>}
+                                    </div>
+
+                                    <div className="space-y-2 md:col-span-2">
+                                        <Label htmlFor="notes">Observações</Label>
+                                        <Textarea
+                                            id="notes"
+                                            value={String(data.notes || '')}
+                                            onChange={(e) => setData('notes', e.target.value)}
+                                            placeholder="Observações sobre o caso..."
+                                            rows={3}
+                                        />
+                                    </div>
+                                </CardContent>
+                            </Card>
+
+                            {/* Employment Links */}
+                            <Card>
+                                <CardHeader>
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <CardTitle className="flex items-center gap-2">
+                                                <Building className="h-5 w-5" />
+                                                Vínculos Empregatícios
+                                            </CardTitle>
+                                            <CardDescription>
+                                                {vinculos.length > 0 ? `${vinculos.length} vínculo(s) adicionado(s)` : 'Nenhum vínculo adicionado'}
+                                            </CardDescription>
+                                        </div>
+                                        <Button type="button" variant="outline" size="sm" onClick={addManualVinculo} className="gap-2">
+                                            <Plus className="h-4 w-4" />
+                                            Adicionar Vínculo
+                                        </Button>
+                                    </div>
+                                </CardHeader>
+                                <CardContent>
+                                    {vinculos.length > 0 ? (
+                                        <div className="space-y-4">
+                                            {vinculos.map((vinculo: any, index: number) => (
+                                                <div key={index} className="rounded-lg border border-border p-4">
+                                                    <div className="mb-4 flex items-center justify-between">
+                                                        <Badge variant="outline">Vínculo #{index + 1}</Badge>
+                                                        <Button
+                                                            type="button"
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            onClick={() => removeVinculo(index)}
+                                                            className="text-red-600 hover:text-red-700"
+                                                        >
+                                                            Remover
+                                                        </Button>
+                                                    </div>
+
+                                                    <div className="grid gap-4 md:grid-cols-2">
+                                                        <div className="space-y-2">
+                                                            <Label>Empregador *</Label>
+                                                            <Input
+                                                                value={vinculo.empregador || ''}
+                                                                onChange={(e) => updateVinculo(index, 'empregador', e.target.value)}
+                                                                placeholder="Nome da empresa"
+                                                                required
+                                                            />
+                                                        </div>
+
+                                                        <div className="space-y-2">
+                                                            <Label>CNPJ</Label>
+                                                            <Input
+                                                                value={vinculo.cnpj || ''}
+                                                                onChange={(e) => updateVinculo(index, 'cnpj', e.target.value)}
+                                                                placeholder="00.000.000/0000-00"
+                                                            />
+                                                        </div>
+
+                                                        <div className="space-y-2">
+                                                            <Label>Data de Início</Label>
+                                                            <Input
+                                                                type="date"
+                                                                value={
+                                                                    vinculo.data_inicio
+                                                                        ? new Date(vinculo.data_inicio.split('/').reverse().join('-'))
+                                                                              .toISOString()
+                                                                              .split('T')[0]
+                                                                        : ''
+                                                                }
+                                                                onChange={(e) => {
+                                                                    const dateValue = e.target.value;
+                                                                    const formattedDate = dateValue
+                                                                        ? new Date(dateValue).toLocaleDateString('pt-BR')
+                                                                        : '';
+                                                                    updateVinculo(index, 'data_inicio', formattedDate);
+                                                                }}
+                                                            />
+                                                        </div>
+
+                                                        <div className="space-y-2">
+                                                            <Label>Data de Fim</Label>
+                                                            <Input
+                                                                type="date"
+                                                                value={
+                                                                    vinculo.data_fim && vinculo.data_fim !== 'Atual'
+                                                                        ? new Date(vinculo.data_fim.split('/').reverse().join('-'))
+                                                                              .toISOString()
+                                                                              .split('T')[0]
+                                                                        : ''
+                                                                }
+                                                                onChange={(e) => {
+                                                                    const dateValue = e.target.value;
+                                                                    const formattedDate = dateValue
+                                                                        ? new Date(dateValue).toLocaleDateString('pt-BR')
+                                                                        : '';
+                                                                    updateVinculo(index, 'data_fim', formattedDate);
+                                                                }}
+                                                                placeholder="Deixe vazio se ainda ativo"
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <div className="py-8 text-center text-muted-foreground">
+                                            <Building className="mx-auto mb-4 h-12 w-12 opacity-50" />
+                                            <p>Nenhum vínculo empregatício adicionado</p>
+                                            <p className="text-sm">Use o botão "Adicionar Vínculo" ou faça upload do CNIS</p>
+                                        </div>
                                     )}
-                                </div>
-
-                                <div className="space-y-2">
-                                    <Label htmlFor="client_cpf">CPF do Cliente *</Label>
-                                    <Input
-                                        id="client_cpf"
-                                        value={data.client_cpf}
-                                        onChange={(e) => setData('client_cpf', e.target.value)}
-                                        placeholder="000.000.000-00"
-                                    />
-                                    {errors.client_cpf && (
-                                        <p className="text-sm text-red-600">{errors.client_cpf}</p>
-                                    )}
-                                </div>
-
-                                {/* Tipo de Benefício */}
-                                <div className="space-y-2">
-                                    <Label htmlFor="benefit_type">Tipo de Benefício *</Label>
-                                    <select
-                                        id="benefit_type"
-                                        value={data.benefit_type}
-                                        onChange={(e) => setData('benefit_type', e.target.value)}
-                                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                    >
-                                        <option value="">Selecione o tipo de benefício</option>
-                                        <option value="aposentadoria_por_idade">Aposentadoria por Idade</option>
-                                        <option value="aposentadoria_por_tempo_contribuicao">Aposentadoria por Tempo de Contribuição</option>
-                                        <option value="aposentadoria_professor">Aposentadoria Professor</option>
-                                        <option value="aposentadoria_pcd">Aposentadoria PCD</option>
-                                        <option value="aposentadoria_especial">Aposentadoria Especial</option>
-                                    </select>
-                                    {errors.benefit_type && (
-                                        <p className="text-sm text-red-600">{errors.benefit_type}</p>
-                                    )}
-                                </div>
-                            </div>
-
-                            {/* Descrição */}
-                            <div className="space-y-2">
-                                <Label htmlFor="description">Descrição do Caso</Label>
-                                <textarea
-                                    id="description"
-                                    value={data.description}
-                                    onChange={(e) => setData('description', e.target.value)}
-                                    placeholder="A descrição será gerada automaticamente com base nos vínculos empregatícios extraídos do CNIS..."
-                                    rows={6}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                />
-                                <p className="text-xs text-gray-500">
-                                    A descrição será gerada automaticamente pela IA com base nos vínculos empregatícios extraídos do CNIS.
-                                </p>
-                            </div>
+                                </CardContent>
+                            </Card>
 
                             {/* Submit Button */}
                             <div className="flex justify-end">
-                                <Button type="submit" disabled={processing}>
-                                    <Save className="mr-2 h-4 w-4" />
-                                    {processing ? 'Criando Caso...' : 'Criar Caso'}
+                                <Button type="submit" size="lg" className="gap-2">
+                                    <CheckCircle className="h-4 w-4" />
+                                    Criar Caso
                                 </Button>
                             </div>
                         </form>
-                    </CardContent>
-                </Card>
+                    </div>
+                </div>
             </div>
         </AppLayout>
     );
-} 
+}

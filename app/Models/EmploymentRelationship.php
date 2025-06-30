@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class EmploymentRelationship extends Model
 {
@@ -21,6 +22,9 @@ class EmploymentRelationship extends Model
         'cbo_code',
         'is_active',
         'notes',
+        'cargo',
+        'documentos',
+        'observacoes',
     ];
 
     protected $casts = [
@@ -30,7 +34,7 @@ class EmploymentRelationship extends Model
         'is_active' => 'boolean',
     ];
 
-    public function case(): BelongsTo
+    public function legalCase(): BelongsTo
     {
         return $this->belongsTo(LegalCase::class, 'case_id');
     }
@@ -53,5 +57,10 @@ class EmploymentRelationship extends Model
         }
         
         return $diff->d . ' dia' . ($diff->d > 1 ? 's' : '');
+    }
+
+    public function collectionAttempts(): HasMany
+    {
+        return $this->hasMany(CollectionAttempt::class);
     }
 } 

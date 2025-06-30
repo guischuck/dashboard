@@ -12,15 +12,17 @@ class DeepSeekService
 
     public function __construct()
     {
-        $this->apiKey = config('services.deepseek.api_key', 'sk-909462f78a694d23b6ebe222a84948f4');
+        $this->apiKey = config('services.deepseek.api_key');
     }
 
-    public function generatePetition(array $caseData, string $petitionType): array
+    public function generatePetition(array $caseData, string $prompt): array
     {
         try {
-            $prompt = $this->buildPetitionPrompt($caseData, $petitionType);
+            $systemPrompt = 'Você é um advogado especialista em direito previdenciário do INSS. Gere petições jurídicas precisas e bem fundamentadas.';
             
-            $response = Http::timeout(25)->withHeaders([
+            $userPrompt = $this->buildPetitionPrompt($caseData, $prompt);
+            
+            $response = Http::timeout(120)->withHeaders([
                 'Authorization' => 'Bearer ' . $this->apiKey,
                 'Content-Type' => 'application/json',
             ])->post($this->baseUrl . '/chat/completions', [
@@ -28,11 +30,11 @@ class DeepSeekService
                 'messages' => [
                     [
                         'role' => 'system',
-                        'content' => 'Você é um advogado especialista em direito previdenciário do INSS. Gere petições jurídicas precisas e bem fundamentadas.'
+                        'content' => $systemPrompt
                     ],
                     [
                         'role' => 'user',
-                        'content' => $prompt
+                        'content' => $userPrompt
                     ]
                 ],
                 'temperature' => 0.7,
@@ -58,6 +60,16 @@ class DeepSeekService
                 'error' => 'Erro na API do DeepSeek: ' . $response->status(),
             ];
 
+        } catch (\Illuminate\Http\Client\ConnectionException $e) {
+            Log::error('DeepSeek connection timeout', [
+                'message' => $e->getMessage(),
+            ]);
+
+            return [
+                'success' => false,
+                'error' => 'Timeout na conexão com a API. Tente novamente em alguns segundos.',
+            ];
+
         } catch (\Exception $e) {
             Log::error('DeepSeek service error', [
                 'message' => $e->getMessage(),
@@ -76,7 +88,7 @@ class DeepSeekService
         try {
             $prompt = $this->buildDocumentAnalysisPrompt($documentContent, $documentType);
             
-            $response = Http::timeout(25)->withHeaders([
+            $response = Http::timeout(60)->withHeaders([
                 'Authorization' => 'Bearer ' . $this->apiKey,
                 'Content-Type' => 'application/json',
             ])->post($this->baseUrl . '/chat/completions', [
@@ -128,11 +140,93 @@ class DeepSeekService
         }
     }
 
-    private function buildPetitionPrompt(array $caseData, string $petitionType): string
+    public function chat(string $message): array
+    {
+        try {
+            Log::info('DeepSeek Chat API call started', ['message_length' => strlen($message)]);
+            
+            $systemPrompt = 'Você é uma assistente previdenciária especializada em direito do INSS. Responda de forma clara, precisa e útil sobre questões previdenciárias, análise de documentos CNIS, estratégias para benefícios, vínculos empregatícios e orientações sobre coleta de documentos. Seja sempre profissional e técnica em suas respostas.
+
+Quando receber informações detalhadas sobre um cliente (vínculos empregatícios, documentos, andamentos), use essas informações para dar respostas mais precisas e personalizadas. Analise os dados fornecidos e identifique possíveis problemas, oportunidades ou próximos passos.
+
+Se não houver informações específicas do cliente, forneça orientações gerais sobre direito previdenciário.';
+            
+            $response = Http::timeout(180)->withHeaders([
+                'Authorization' => 'Bearer ' . $this->apiKey,
+                'Content-Type' => 'application/json',
+            ])->post($this->baseUrl . '/chat/completions', [
+                'model' => 'deepseek-chat',
+                'messages' => [
+                    [
+                        'role' => 'system',
+                        'content' => $systemPrompt
+                    ],
+                    [
+                        'role' => 'user',
+                        'content' => $message
+                    ]
+                ],
+                'temperature' => 0.7,
+                'max_tokens' => 4000,
+                'top_p' => 0.95,
+            ]);
+
+            Log::info('DeepSeek API response received', [
+                'status' => $response->status(),
+                'successful' => $response->successful(),
+            ]);
+
+            if ($response->successful()) {
+                $data = $response->json();
+                Log::info('DeepSeek API response parsed', [
+                    'has_choices' => isset($data['choices']),
+                    'choices_count' => count($data['choices'] ?? []),
+                ]);
+                
+                return [
+                    'success' => true,
+                    'content' => $data['choices'][0]['message']['content'] ?? '',
+                    'usage' => $data['usage'] ?? null,
+                ];
+            }
+
+            Log::error('DeepSeek Chat API error', [
+                'status' => $response->status(),
+                'response' => $response->body(),
+            ]);
+
+            return [
+                'success' => false,
+                'error' => 'Erro na API do DeepSeek: ' . $response->status(),
+            ];
+
+        } catch (\Illuminate\Http\Client\ConnectionException $e) {
+            Log::error('DeepSeek Chat connection timeout', [
+                'message' => $e->getMessage(),
+            ]);
+
+            return [
+                'success' => false,
+                'error' => 'Timeout na conexão com a API. Tente novamente em alguns segundos.',
+            ];
+
+        } catch (\Exception $e) {
+            Log::error('DeepSeek Chat service error', [
+                'message' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return [
+                'success' => false,
+                'error' => 'Erro interno: ' . $e->getMessage(),
+            ];
+        }
+    }
+
+    private function buildPetitionPrompt(array $caseData, string $userPrompt): string
     {
         $clientInfo = "Cliente: {$caseData['client_name']} (CPF: {$caseData['client_cpf']})";
         $benefitInfo = "Tipo de Benefício: {$caseData['benefit_type']}";
-        $description = $caseData['description'] ?? 'Não informado';
         
         $employmentInfo = '';
         if (!empty($caseData['employment_relationships'])) {
@@ -143,21 +237,19 @@ class DeepSeekService
             }
         }
 
-        return "Gere uma petição do tipo '{$petitionType}' com as seguintes informações:
+        return "Gere uma petição jurídica para o INSS com as seguintes informações:
 
 {$clientInfo}
 {$benefitInfo}
-Descrição do caso: {$description}
 {$employmentInfo}
 
-A petição deve ser:
-- Formal e técnica
-- Bem fundamentada juridicamente
-- Específica para o tipo de benefício
-- Estruturada adequadamente
-- Pronta para submissão
+Solicitação específica: {$userPrompt}
 
-Gere apenas o conteúdo da petição, sem comentários adicionais.";
+Formato da resposta:
+- Petição formal e técnica
+- Estrutura adequada para submissão
+- Linguagem jurídica apropriada
+- Sem comentários adicionais";
     }
 
     private function buildDocumentAnalysisPrompt(string $content, string $documentType): string

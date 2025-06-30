@@ -3,6 +3,8 @@
 namespace Database\Seeders;
 
 use App\Models\User;
+use App\Models\Company;
+use App\Models\LegalCase;
 // use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 
@@ -13,11 +15,24 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
-        // User::factory(10)->create();
+        // Criar super admin se não existir
+        if (!User::where('email', 'admin@previdia.com')->exists()) {
+            User::create([
+                'name' => 'Super Admin',
+                'email' => 'admin@previdia.com',
+                'password' => bcrypt('password'),
+                'role' => 'super_admin',
+                'is_active' => true,
+                'email_verified_at' => now(),
+            ]);
+        }
 
-        User::factory()->create([
-            'name' => 'Test User',
-            'email' => 'test@example.com',
+        $this->call([
+            CompanySeeder::class,
+            SubscriptionPlanSeeder::class,
+            CompanySubscriptionSeeder::class,
+            PetitionTemplateSeeder::class,
+            WorkflowTemplateSeeder::class,
         ]);
     }
 }

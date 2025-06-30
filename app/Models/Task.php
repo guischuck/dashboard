@@ -4,14 +4,16 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Task extends Model
 {
-    use HasFactory;
+    use HasFactory, SoftDeletes;
 
     protected $fillable = [
         'case_id',
+        'workflow_template_id',
         'title',
         'description',
         'status',
@@ -22,17 +24,25 @@ class Task extends Model
         'created_by',
         'required_documents',
         'notes',
+        'order',
+        'is_workflow_task',
     ];
 
     protected $casts = [
         'due_date' => 'date',
-        'completed_at' => 'date',
+        'completed_at' => 'datetime',
         'required_documents' => 'array',
+        'is_workflow_task' => 'boolean',
     ];
 
     public function case(): BelongsTo
     {
         return $this->belongsTo(LegalCase::class, 'case_id');
+    }
+
+    public function workflowTemplate(): BelongsTo
+    {
+        return $this->belongsTo(WorkflowTemplate::class, 'workflow_template_id');
     }
 
     public function assignedTo(): BelongsTo
@@ -48,7 +58,7 @@ class Task extends Model
     public function getStatusColorAttribute(): string
     {
         return match($this->status) {
-            'pending' => 'gray',
+            'pending' => 'yellow',
             'in_progress' => 'blue',
             'completed' => 'green',
             'cancelled' => 'red',
@@ -61,8 +71,8 @@ class Task extends Model
         return match($this->status) {
             'pending' => 'Pendente',
             'in_progress' => 'Em Andamento',
-            'completed' => 'Concluída',
-            'cancelled' => 'Cancelada',
+            'completed' => 'Concluído',
+            'cancelled' => 'Cancelado',
             default => 'Desconhecido',
         };
     }
@@ -85,7 +95,7 @@ class Task extends Model
             'medium' => 'Média',
             'high' => 'Alta',
             'urgent' => 'Urgente',
-            default => 'Desconhecida',
+            default => 'Não definida',
         };
     }
 

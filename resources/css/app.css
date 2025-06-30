@@ -157,3 +157,36 @@
         @apply bg-background text-foreground;
     }
 }
+
+/* Estilos para o markdown no chat */
+.markdown-content {
+    @apply text-gray-900;
+}
+
+.markdown-content strong {
+    @apply font-bold text-gray-900;
+}
+
+.markdown-content em {
+    @apply text-gray-700 italic;
+}
+
+.markdown-content ul {
+    @apply my-2 ml-4 list-disc space-y-1;
+}
+
+.markdown-content ol {
+    @apply my-2 ml-4 list-decimal space-y-1;
+}
+
+.markdown-content li {
+    @apply ml-4;
+}
+
+.markdown-content p {
+    @apply mb-2 last:mb-0;
+}
+
+.markdown-content br {
+    @apply my-1 block;
+}

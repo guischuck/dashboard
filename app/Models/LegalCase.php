@@ -21,12 +21,15 @@ class LegalCase extends Model
         'benefit_type',
         'status',
         'description',
+        'notes',
+        'workflow_tasks',
         'estimated_value',
         'success_fee',
         'filing_date',
         'decision_date',
         'assigned_to',
         'created_by',
+        'company_id',
     ];
 
     protected $casts = [
@@ -34,7 +37,13 @@ class LegalCase extends Model
         'decision_date' => 'date',
         'estimated_value' => 'decimal:2',
         'success_fee' => 'decimal:2',
+        'workflow_tasks' => 'array',
     ];
+
+    public function company(): BelongsTo
+    {
+        return $this->belongsTo(Company::class);
+    }
 
     public function assignedTo(): BelongsTo
     {
@@ -74,11 +83,12 @@ class LegalCase extends Model
     public function getStatusColorAttribute(): string
     {
         return match($this->status) {
-            'pending' => 'yellow',
-            'analysis' => 'blue',
-            'completed' => 'green',
-            'requirement' => 'orange',
-            'rejected' => 'red',
+            'pendente' => 'yellow',
+            'em_coleta' => 'blue',
+            'aguarda_peticao' => 'orange',
+            'protocolado' => 'purple',
+            'concluido' => 'green',
+            'rejeitado' => 'red',
             default => 'gray',
         };
     }
@@ -86,12 +96,74 @@ class LegalCase extends Model
     public function getStatusTextAttribute(): string
     {
         return match($this->status) {
-            'pending' => 'Pendente',
-            'analysis' => 'Em Análise',
-            'completed' => 'Concluído',
-            'requirement' => 'Exigência',
-            'rejected' => 'Rejeitado',
+            'pendente' => 'Pendente',
+            'em_coleta' => 'Em Coleta',
+            'aguarda_peticao' => 'Aguarda Petição',
+            'protocolado' => 'Protocolado',
+            'concluido' => 'Concluído',
+            'rejeitado' => 'Rejeitado',
             default => 'Desconhecido',
         };
+    }
+
+    /**
+     * Calcula o progresso da coleta de documentos
+     */
+    public function getCollectionProgressAttribute(): array
+    {
+        $totalVinculos = $this->employmentRelationships()->count();
+        
+        if ($totalVinculos === 0) {
+            return [
+                'percentage' => 0,
+                'completed' => 0,
+                'total' => 0,
+                'status' => 'Sem vínculos'
+            ];
+        }
+        
+        $vinculosConcluidos = $this->employmentRelationships()
+            ->where('is_active', false)
+            ->count();
+        
+        $percentage = $totalVinculos > 0 ? round(($vinculosConcluidos / $totalVinculos) * 100) : 0;
+        
+        return [
+            'percentage' => $percentage,
+            'completed' => $vinculosConcluidos,
+            'total' => $totalVinculos,
+            'status' => $percentage == 100 ? 'Completo' : 'Em andamento'
+        ];
+    }
+
+    /**
+     * Atualiza automaticamente o status do caso baseado no progresso da coleta
+     */
+    public function updateStatusBasedOnProgress(): void
+    {
+        $progress = $this->collection_progress;
+        
+        // Se não há vínculos, mantém status atual
+        if ($progress['total'] === 0) {
+            return;
+        }
+        
+        // Se todos os vínculos foram concluídos
+        if ($progress['percentage'] == 100) {
+            // Se estava em coleta, muda para aguarda petição
+            if ($this->status === 'em_coleta') {
+                $this->update(['status' => 'aguarda_peticao']);
+            }
+        } else {
+            // Se há vínculos pendentes e não está em coleta
+            if ($this->status === 'pendente') {
+                $this->update(['status' => 'em_coleta']);
+            }
+        }
+    }
+
+    public function scopeByCompany($query, $companyId)
+    {
+        return $query->where('company_id', $companyId);
     }
 } 

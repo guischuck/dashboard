@@ -32,9 +32,15 @@ return [
     ],
 
     'deepseek' => [
-        'api_key' => env('DEEPSEEK_API_KEY', 'sk-909462f78a694d23b6ebe222a84948f4'),
+        'api_key' => env('DEEPSEEK_API_KEY'),
         'base_url' => env('DEEPSEEK_BASE_URL', 'https://api.deepseek.com/v1'),
         'model' => env('DEEPSEEK_MODEL', 'deepseek-chat'),
+    ],
+
+    'openai' => [
+        'api_key' => env('OPENAI_API_KEY'),
+        'base_url' => env('OPENAI_BASE_URL', 'https://api.openai.com/v1'),
+        'model' => env('OPENAI_MODEL', 'gpt-4o-mini'),
     ],
 
     'resend' => [

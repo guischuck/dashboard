@@ -3,7 +3,9 @@
 namespace App\Providers;
 
 use Illuminate\Support\ServiceProvider;
+use Illuminate\Support\Facades\Gate;
 use App\Services\GoogleDocumentAiService;
+use Inertia\Inertia;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -22,6 +24,17 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        //
+        Inertia::share([
+            'sidebarOpen' => true,
+        ]);
+
+        // Gates para controle de acesso
+        Gate::define('manage-companies', function ($user) {
+            return $user->isSuperAdmin();
+        });
+
+        Gate::define('manage-users', function ($user) {
+            return $user->isAdmin();
+        });
     }
 }

@@ -12,38 +12,68 @@ class CaseController extends Controller
 {
     public function index(Request $request)
     {
-        $query = LegalCase::with(['assignedTo', 'createdBy', 'inssProcesses'])
-            ->when($request->search, function ($query, $search) {
-                $query->where(function ($q) use ($search) {
-                    $q->where('case_number', 'like', "%{$search}%")
-                      ->orWhere('client_name', 'like', "%{$search}%")
-                      ->orWhere('client_cpf', 'like', "%{$search}%");
-                });
-            })
-            ->when($request->status, function ($query, $status) {
-                $query->where('status', $status);
-            })
-            ->when($request->assigned_to, function ($query, $assignedTo) {
-                $query->where('assigned_to', $assignedTo);
-            });
+        try {
+            \Log::info('Cases index method called');
+            
+            $user = auth()->user();
+            $companyId = $user->company_id;
+            
+            // Filtrar por empresa do usuário logado
+            $query = LegalCase::with(['assignedTo', 'createdBy'])
+                ->where('company_id', $companyId);
+            
+            // Aplicar filtros de busca
+            if ($request->filled('search')) {
+                $search = $request->get('search');
+                $query->where('client_name', 'like', "%{$search}%");
+            }
+            
+            if ($request->filled('status')) {
+                $query->where('status', $request->get('status'));
+            }
+            
+            if ($request->filled('assigned_to')) {
+                $query->where('assigned_to', $request->get('assigned_to'));
+            }
+            
+            \Log::info('Query built, getting cases for company:', ['company_id' => $companyId]);
+            
+            $cases = $query->orderBy('created_at', 'desc')->paginate(15);
+            
+            \Log::info('Cases retrieved successfully', [
+                'total' => $cases->total(),
+                'current_page' => $cases->currentPage(),
+                'per_page' => $cases->perPage(),
+                'data_count' => count($cases->items())
+            ]);
 
-        $cases = $query->orderBy('created_at', 'desc')->paginate(15);
+            $users = User::select('id', 'name')->get();
+            $statuses = [
+                'pendente' => 'Pendente',
+                'em_coleta' => 'Em Coleta',
+                'aguarda_peticao' => 'Aguarda Petição',
+                'protocolado' => 'Protocolado',
+                'concluido' => 'Concluído',
+                'rejeitado' => 'Rejeitado',
+            ];
 
-        $users = User::select('id', 'name')->get();
-        $statuses = [
-            'pending' => 'Pendente',
-            'analysis' => 'Em Análise',
-            'completed' => 'Concluído',
-            'requirement' => 'Exigência',
-            'rejected' => 'Rejeitado',
-        ];
+            \Log::info('Rendering Inertia response...');
 
-        return Inertia::render('Cases/Index', [
-            'cases' => $cases,
-            'users' => $users,
-            'statuses' => $statuses,
-            'filters' => $request->only(['search', 'status', 'assigned_to']),
-        ]);
+            return Inertia::render('Cases/Index', [
+                'cases' => $cases,
+                'users' => $users,
+                'statuses' => $statuses,
+                'filters' => $request->only(['search', 'status', 'assigned_to']),
+            ]);
+            
+        } catch (\Exception $e) {
+            \Log::error('Error in cases index:', [
+                'message' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            
+            throw $e;
+        }
     }
 
     public function create()
@@ -63,21 +93,89 @@ class CaseController extends Controller
 
     public function store(Request $request)
     {
+        \Log::info('CaseController@store called');
+        \Log::info('Request data:', $request->all());
+        \Log::info('Request has vinculos_empregaticios:', ['has' => $request->has('vinculos_empregaticios')]);
+        \Log::info('vinculos_empregaticios value:', ['value' => $request->input('vinculos_empregaticios')]);
+        \Log::info('vinculos_empregaticios type:', ['type' => gettype($request->input('vinculos_empregaticios'))]);
+        \Log::info('vinculos_empregaticios count:', ['count' => is_array($request->input('vinculos_empregaticios')) ? count($request->input('vinculos_empregaticios')) : 'not array']);
+        
         $validated = $request->validate([
             'client_name' => 'required|string|max:255',
             'client_cpf' => 'required|string|max:14',
-            'benefit_type' => 'required|string',
-            'description' => 'nullable|string',
+            'vinculos_empregaticios' => 'nullable|array',
         ]);
+
+        \Log::info('Validated data:', $validated);
 
         $validated['case_number'] = $this->generateCaseNumber();
         $validated['created_by'] = auth()->id();
-        $validated['status'] = 'pending';
+        $validated['company_id'] = auth()->user()->company_id; // ← GARANTIR COMPANY_ID
+        $validated['status'] = 'pendente';
+
+        \Log::info('About to create case with data:', $validated);
 
         $case = LegalCase::create($validated);
 
-        return redirect()->route('cases.show', $case)
-            ->with('success', 'Caso criado com sucesso!');
+        \Log::info('Case created with ID:', ['id' => $case->id]);
+
+        // Salvar vínculos empregatícios se fornecidos
+        if (!empty($request->vinculos_empregaticios)) {
+            \Log::info('Saving employment relationships:', $request->vinculos_empregaticios);
+            
+            foreach ($request->vinculos_empregaticios as $vinculo) {
+                \Log::info('Processing vinculo:', $vinculo);
+                
+                $case->employmentRelationships()->create([
+                    'employer_name' => $vinculo['empregador'] ?? '',
+                    'employer_cnpj' => $vinculo['cnpj'] ?? '',
+                    'start_date' => $this->parseDate($vinculo['data_inicio'] ?? ''),
+                    'end_date' => $this->parseDate($vinculo['data_fim'] ?? ''),
+                    'salary' => $this->parseSalary($vinculo['salario'] ?? ''),
+                    'is_active' => true, // Todos os vínculos começam como PENDENTE (aguardando coleta)
+                    'notes' => 'Extraído automaticamente do CNIS',
+                ]);
+            }
+            
+            \Log::info('Employment relationships saved successfully');
+        } else {
+            \Log::info('No employment relationships to save');
+        }
+
+        \Log::info('Redirecting to case show page');
+
+        return redirect()->route('cases.vinculos', $case)
+            ->with('success', 'Caso criado com sucesso! Vínculos empregatícios extraídos automaticamente.');
+    }
+
+    private function parseDate($dateString): ?string
+    {
+        if (empty($dateString) || $dateString === 'sem data fim') {
+            return null;
+        }
+
+        // Converte dd/mm/yyyy para yyyy-mm-dd
+        if (preg_match('/^\d{2}\/\d{2}\/\d{4}$/', $dateString)) {
+            $date = \DateTime::createFromFormat('d/m/Y', $dateString);
+            return $date ? $date->format('Y-m-d') : null;
+        }
+
+        return null;
+    }
+
+    private function parseSalary($salaryString): ?float
+    {
+        if (empty($salaryString)) {
+            return null;
+        }
+
+        // Remove caracteres não numéricos exceto vírgula e ponto
+        $cleanSalary = preg_replace('/[^\d,.]/', '', $salaryString);
+        
+        // Converte vírgula para ponto para float
+        $cleanSalary = str_replace(',', '.', $cleanSalary);
+        
+        return (float) $cleanSalary;
     }
 
     public function show(LegalCase $case)
@@ -116,6 +214,12 @@ class CaseController extends Controller
 
     public function edit(LegalCase $case)
     {
+        \Log::info('CaseController@edit called', [
+            'case_id' => $case->id,
+            'case_status' => $case->status,
+            'case_data' => $case->toArray()
+        ]);
+
         $users = User::select('id', 'name')->get();
         $benefitTypes = [
             'aposentadoria_por_idade' => 'Aposentadoria por Idade',
@@ -138,23 +242,112 @@ class CaseController extends Controller
 
     public function update(Request $request, LegalCase $case)
     {
-        $validated = $request->validate([
-            'client_name' => 'required|string|max:255',
-            'client_cpf' => 'required|string|max:14',
-            'benefit_type' => 'required|string',
-            'description' => 'nullable|string',
-            'estimated_value' => 'nullable|numeric|min:0',
-            'success_fee' => 'nullable|numeric|min:0|max:100',
-            'filing_date' => 'nullable|date',
-            'decision_date' => 'nullable|date',
-            'status' => 'required|in:pending,analysis,completed,requirement,rejected',
-            'assigned_to' => 'nullable|exists:users,id',
+        \Log::info('CaseController@update called', [
+            'method' => $request->method(),
+            'url' => $request->url(),
+            'path' => $request->path(),
+            'case_id' => $case->id,
+            'request_data' => $request->all(),
+            'status_value' => $request->input('status'),
+            'status_type' => gettype($request->input('status')),
+            'headers' => $request->headers->all()
         ]);
+
+        // Para atualizações parciais, validar apenas os campos enviados
+        $validationRules = [];
+        
+        if ($request->has('client_name')) {
+            $validationRules['client_name'] = 'required|string|max:255';
+        }
+        
+        if ($request->has('client_cpf')) {
+            $validationRules['client_cpf'] = 'required|string|max:14';
+        }
+        
+        if ($request->has('benefit_type')) {
+            $validationRules['benefit_type'] = 'nullable|string';
+        }
+        
+        if ($request->has('status')) {
+            $validationRules['status'] = 'required|in:pendente,em_coleta,aguarda_peticao,protocolado,concluido,rejeitado';
+            \Log::info('Status validation rule added:', ['rule' => $validationRules['status']]);
+        }
+        
+        if ($request->has('description')) {
+            $validationRules['description'] = 'nullable|string';
+        }
+        
+        if ($request->has('notes')) {
+            $validationRules['notes'] = 'nullable|string';
+        }
+
+        \Log::info('Validation rules:', $validationRules);
+
+        $validated = $request->validate($validationRules);
+
+        \Log::info('Validated data:', $validated);
+
+        // Verificar se o benefit_type está sendo alterado e criar workflow se necessário
+        $oldBenefitType = $case->benefit_type;
+        $newBenefitType = $validated['benefit_type'] ?? $oldBenefitType;
+        
+        if ($newBenefitType && $newBenefitType !== $oldBenefitType) {
+            \Log::info('Benefit type changed, creating workflow', [
+                'old' => $oldBenefitType,
+                'new' => $newBenefitType
+            ]);
+            
+            $this->createWorkflowForCase($case, $newBenefitType);
+        }
 
         $case->update($validated);
 
+        \Log::info('Case updated successfully', [
+            'case_id' => $case->id,
+            'updated_fields' => array_keys($validated)
+        ]);
+
         return redirect()->route('cases.show', $case)
             ->with('success', 'Caso atualizado com sucesso!');
+    }
+
+    private function createWorkflowForCase(LegalCase $case, string $benefitType): void
+    {
+        // Buscar template de workflow para o tipo de benefício
+        $template = \App\Models\WorkflowTemplate::where('benefit_type', $benefitType)
+            ->where('is_active', true)
+            ->first();
+
+        if (!$template) {
+            \Log::warning('No workflow template found for benefit type', ['benefit_type' => $benefitType]);
+            return;
+        }
+
+        // Remover tarefas de workflow existentes para este caso
+        $case->tasks()->where('is_workflow_task', true)->delete();
+
+        // Criar tarefas baseadas no template
+        foreach ($template->tasks as $taskTemplate) {
+            $case->tasks()->create([
+                'workflow_template_id' => $template->id,
+                'title' => $taskTemplate['title'],
+                'description' => $taskTemplate['description'],
+                'status' => 'pending',
+                'priority' => 'medium',
+                'due_date' => now()->addDays(7), // 7 dias para completar cada tarefa
+                'assigned_to' => auth()->id(),
+                'created_by' => auth()->id(),
+                'required_documents' => $taskTemplate['required_documents'] ?? [],
+                'order' => $taskTemplate['order'],
+                'is_workflow_task' => true,
+            ]);
+        }
+
+        \Log::info('Workflow created for case', [
+            'case_id' => $case->id,
+            'template_id' => $template->id,
+            'tasks_created' => count($template->tasks)
+        ]);
     }
 
     public function destroy(LegalCase $case)
@@ -163,6 +356,23 @@ class CaseController extends Controller
 
         return redirect()->route('cases.index')
             ->with('success', 'Caso excluído com sucesso!');
+    }
+
+    public function vinculos(LegalCase $case)
+    {
+        \Log::info('Vinculos method called for case:', ['case_id' => $case->id, 'case_number' => $case->case_number]);
+        $case->load('employmentRelationships');
+        \Log::info('Employment relationships loaded:', [
+            'count' => $case->employmentRelationships->count(),
+            'relationships' => $case->employmentRelationships->toArray()
+        ]);
+
+        return Inertia::render('Cases/Vinculos', [
+            'case' => array_merge(
+                $case->toArray(),
+                ['employment_relationships' => $case->employmentRelationships->toArray()]
+            ),
+        ]);
     }
 
     private function generateCaseNumber(): string
@@ -182,28 +392,129 @@ class CaseController extends Controller
         return sprintf("CASE-%s-%04d", $year, $newNumber);
     }
 
-    public function dashboard()
+        public function dashboard()
     {
+        $user = auth()->user();
+        $isSuperAdmin = $user->isSuperAdmin();
+        
+        // Dashboard do Super Admin
+        if ($isSuperAdmin) {
+            // Estatísticas de empresas
+            $companiesStats = [
+                'total' => \App\Models\Company::count(),
+                'active' => \App\Models\Company::where('is_active', true)->count(),
+            ];
+            
+            // Estatísticas de usuários
+            $usersStats = [
+                'total' => \App\Models\User::count(),
+                'active' => \App\Models\User::where('is_active', true)->count(),
+            ];
+            
+            // Estatísticas de templates de petição
+            $petitionTemplatesStats = [
+                'total' => \App\Models\PetitionTemplate::count(),
+                'active' => \App\Models\PetitionTemplate::where('is_active', true)->count(),
+            ];
+            
+            // Estatísticas de templates de workflow
+            $workflowTemplatesStats = [
+                'total' => \App\Models\WorkflowTemplate::count(),
+                'active' => \App\Models\WorkflowTemplate::where('is_active', true)->count(),
+            ];
+            
+            // Dados financeiros
+            $financial = [
+                'monthly_revenue' => \App\Models\Payment::where('created_at', '>=', now()->startOfMonth())
+                    ->where('status', 'paid')
+                    ->sum('amount'),
+                'recent_payments' => \App\Models\Payment::where('created_at', '>=', now()->subDays(30))
+                    ->where('status', 'paid')
+                    ->count(),
+                'active_subscriptions' => \App\Models\CompanySubscription::where('status', 'active')
+                    ->where('current_period_end', '>', now())
+                    ->count(),
+            ];
+            
+            // Empresas recentes
+            $recentCompanies = \App\Models\Company::with(['users', 'cases'])
+                ->withCount(['users', 'cases'])
+                ->orderBy('created_at', 'desc')
+                ->limit(5)
+                ->get();
+            
+            // Atividade recente (7 dias)
+            $recent_activity = [
+                'new_companies' => \App\Models\Company::where('created_at', '>=', now()->subDays(7))->count(),
+                'new_users' => \App\Models\User::where('created_at', '>=', now()->subDays(7))->count(),
+                'recent_payments' => \App\Models\Payment::where('created_at', '>=', now()->subDays(7))
+                    ->where('status', 'paid')
+                    ->count(),
+            ];
+            
+            return Inertia::render('dashboard', [
+                'isSuperAdmin' => true,
+                'companiesStats' => $companiesStats,
+                'usersStats' => $usersStats,
+                'petitionTemplatesStats' => $petitionTemplatesStats,
+                'workflowTemplatesStats' => $workflowTemplatesStats,
+                'financial' => $financial,
+                'recentCompanies' => $recentCompanies,
+                'recent_activity' => $recent_activity,
+            ]);
+        }
+        
+        // Dashboard do Usuário Normal
+        $companyId = $user->company_id;
+        
+        // Verificar se o usuário tem empresa
+        if (!$companyId) {
+            return Inertia::render('dashboard', [
+                'isSuperAdmin' => false,
+                'stats' => [
+                    'total_cases' => 0,
+                    'pendente' => 0,
+                    'em_coleta' => 0,
+                    'aguarda_peticao' => 0,
+                    'protocolado' => 0,
+                    'concluido' => 0,
+                    'rejeitado' => 0,
+                ],
+                'recentCases' => [],
+                'casesByStatus' => [],
+                'casesByMonth' => [],
+                'error' => 'Usuário não possui empresa associada.'
+            ]);
+        }
+        
+        // Buscar estatísticas
         $stats = [
-            'total_cases' => LegalCase::count(),
-            'pending_cases' => LegalCase::where('status', 'pending')->count(),
-            'analysis_cases' => LegalCase::where('status', 'analysis')->count(),
-            'completed_cases' => LegalCase::where('status', 'completed')->count(),
-            'requirement_cases' => LegalCase::where('status', 'requirement')->count(),
-            'rejected_cases' => LegalCase::where('status', 'rejected')->count(),
+            'total_cases' => LegalCase::where('company_id', $companyId)->count(),
+            'pendente' => LegalCase::where('company_id', $companyId)->where('status', 'pendente')->count(),
+            'em_coleta' => LegalCase::where('company_id', $companyId)->where('status', 'em_coleta')->count(),
+            'aguarda_peticao' => LegalCase::where('company_id', $companyId)->where('status', 'aguarda_peticao')->count(),
+            'protocolado' => LegalCase::where('company_id', $companyId)->where('status', 'protocolado')->count(),
+            'concluido' => LegalCase::where('company_id', $companyId)->where('status', 'concluido')->count(),
+            'rejeitado' => LegalCase::where('company_id', $companyId)->where('status', 'rejeitado')->count(),
         ];
 
-        $recentCases = LegalCase::with(['assignedTo', 'createdBy'])
+        // Buscar casos recentes
+        $recentCases = LegalCase::where('company_id', $companyId)
+            ->with(['assignedTo', 'createdBy'])
             ->orderBy('created_at', 'desc')
             ->limit(10)
             ->get();
 
-        $casesByStatus = LegalCase::select('status', DB::raw('count(*) as total'))
+        // Buscar distribuição por status
+        $casesByStatus = LegalCase::where('company_id', $companyId)
+            ->select('status', DB::raw('count(*) as total'))
             ->groupBy('status')
             ->get()
             ->pluck('total', 'status');
 
-        $casesByMonth = LegalCase::select(
+        // Buscar evolução mensal
+        $casesByMonth = LegalCase::where('company_id', $companyId)
+            ->select(
                 DB::raw('DATE_FORMAT(created_at, "%Y-%m") as month'),
                 DB::raw('count(*) as total')
             )
@@ -212,11 +523,12 @@ class CaseController extends Controller
             ->orderBy('month')
             ->get();
 
-        return Inertia::render('Cases/Dashboard', [
+        return Inertia::render('dashboard', [
+            'isSuperAdmin' => false,
             'stats' => $stats,
-            'recentCases' => $recentCases,
-            'casesByStatus' => $casesByStatus,
-            'casesByMonth' => $casesByMonth,
+            'recentCases' => $recentCases->toArray(),
+            'casesByStatus' => $casesByStatus->toArray(),
+            'casesByMonth' => $casesByMonth->toArray(),
         ]);
     }
 
@@ -322,5 +634,58 @@ class CaseController extends Controller
                 'message' => 'Erro ao gerar descrição: ' . $e->getMessage()
             ], 500);
         }
+    }
+
+    public function coletas(Request $request)
+    {
+        // Totais para os cards
+        $totalVinculos = \App\Models\EmploymentRelationship::count();
+        $clientesAtivos = \App\Models\LegalCase::whereHas('employmentRelationships', function($q) {
+            $q->whereNull('collected_at');
+        })->count();
+        $clientesFinalizados = \App\Models\LegalCase::whereDoesntHave('employmentRelationships', function($q) {
+            $q->whereNull('collected_at');
+        })->count();
+        $empresasPendentes = \App\Models\EmploymentRelationship::whereNull('collected_at')->distinct('employer_cnpj')->count('employer_cnpj');
+        $empresasConcluidas = \App\Models\EmploymentRelationship::whereNotNull('collected_at')->distinct('employer_cnpj')->count('employer_cnpj');
+        $coletasAtrasadas = \App\Models\LegalCase::whereHas('employmentRelationships', function($q) {
+            $q->whereNull('collected_at');
+        })->where('created_at', '<', now()->subMonths(6))->count();
+
+        // Busca
+        $tab = $request->get('tab', 'clientes');
+        $search = $request->get('search', '');
+        $resultados = [];
+        if ($tab === 'clientes' && $search) {
+            $resultados = \App\Models\LegalCase::where('client_name', 'like', "%{$search}%")
+                ->orWhere('client_cpf', 'like', "%{$search}%")
+                ->with('employmentRelationships')
+                ->get();
+        } elseif ($tab === 'empresas' && $search) {
+            $resultados = \App\Models\EmploymentRelationship::where('employer_name', 'like', "%{$search}%")
+                ->with('legalCase')
+                ->get();
+            // Forçar serialização correta
+            $resultados->each(function($v) { $v->legalCase = $v->legalCase; });
+        } elseif ($tab === 'cargos' && $search) {
+            $resultados = \App\Models\EmploymentRelationship::where('position', 'like', "%{$search}%")
+                ->with('legalCase')
+                ->get();
+            $resultados->each(function($v) { $v->legalCase = $v->legalCase; });
+        }
+
+        return Inertia::render('Coletas', [
+            'cards' => [
+                'totalVinculos' => $totalVinculos,
+                'clientesAtivos' => $clientesAtivos,
+                'clientesFinalizados' => $clientesFinalizados,
+                'empresasPendentes' => $empresasPendentes,
+                'empresasConcluidas' => $empresasConcluidas,
+                'coletasAtrasadas' => $coletasAtrasadas,
+            ],
+            'tab' => $tab,
+            'search' => $search,
+            'resultados' => $resultados,
+        ]);
     }
 } 

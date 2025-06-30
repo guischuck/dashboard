@@ -204,6 +204,102 @@ class DocumentController extends Controller
         ]);
     }
 
+    public function uploadForCase(Request $request, LegalCase $case)
+    {
+        $validated = $request->validate([
+            'files' => 'required|array',
+            'files.*' => 'required|file|max:10240', // 10MB max por arquivo
+            'type' => 'required|string',
+            'notes' => 'nullable|string',
+        ]);
+
+        $uploadedDocuments = [];
+
+        foreach ($request->file('files') as $file) {
+            $fileName = time() . '_' . uniqid() . '_' . $file->getClientOriginalName();
+            $filePath = $file->storeAs('documents', $fileName, 'public');
+
+            $document = Document::create([
+                'case_id' => $case->id,
+                'name' => $file->getClientOriginalName(),
+                'type' => $validated['type'],
+                'file_path' => $filePath,
+                'file_name' => $file->getClientOriginalName(),
+                'mime_type' => $file->getMimeType(),
+                'file_size' => $file->getSize(),
+                'notes' => $validated['notes'],
+                'uploaded_by' => auth()->id(),
+            ]);
+
+            // Processa o documento automaticamente se for CNIS
+            if ($validated['type'] === 'cnis') {
+                $this->documentProcessingService->processDocument($document);
+            }
+
+            $uploadedDocuments[] = $document;
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Documentos enviados com sucesso!',
+            'documents' => $uploadedDocuments,
+        ]);
+    }
+
+    public function getCaseDocuments(LegalCase $case)
+    {
+        $documents = $case->documents()
+            ->with('uploadedBy')
+            ->orderBy('created_at', 'desc')
+            ->get();
+
+        return response()->json([
+            'documents' => $documents,
+        ]);
+    }
+
+    public function deleteDocument(Document $document)
+    {
+        // Verificar se o usuário tem permissão para deletar
+        if ($document->uploaded_by !== auth()->id() && !auth()->user()->is_admin) {
+            return response()->json(['error' => 'Sem permissão para deletar este documento'], 403);
+        }
+
+        // Remove o arquivo físico
+        if (Storage::disk('public')->exists($document->file_path)) {
+            Storage::disk('public')->delete($document->file_path);
+        }
+
+        $document->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Documento excluído com sucesso!',
+        ]);
+    }
+
+    public function updateWorkflowTasks(Request $request, LegalCase $case)
+    {
+        $validated = $request->validate([
+            'workflow_tasks' => 'required|array',
+        ]);
+
+        $case->workflow_tasks = $validated['workflow_tasks'];
+        $case->save();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Tarefas do workflow atualizadas com sucesso!',
+        ]);
+    }
+
+    public function getWorkflowTasks(LegalCase $case)
+    {
+        return response()->json([
+            'workflow_tasks' => $case->workflow_tasks ?? [],
+        ]);
+    }
+
     public function processCnis(Request $request)
     {
         Log::info('DEBUG: Entrou no método processCnis');
@@ -211,6 +307,15 @@ class DocumentController extends Controller
         Log::info('DEBUG: Headers da requisição', ['headers' => $request->headers->all()]);
         Log::info('DEBUG: Método da requisição', ['method' => $request->method()]);
         Log::info('DEBUG: URL da requisição', ['url' => $request->url()]);
+        
+        // Verificar se o usuário está autenticado
+        if (!auth()->check()) {
+            Log::error('DEBUG: Usuário não autenticado');
+            return response()->json([
+                'success' => false,
+                'error' => 'Usuário não autenticado'
+            ], 401);
+        }
         
         $path = \Illuminate\Support\Facades\Storage::disk('local')->path('teste_cnis.txt');
         Log::info('DEBUG: Caminho absoluto do arquivo', ['path' => $path]);
@@ -241,8 +346,8 @@ class DocumentController extends Controller
             ]);
 
             // Salva o arquivo temporariamente
-            $tempPath = $file->store('temp/cnis', 'local');
-            $fullPath = Storage::disk('local')->path($tempPath);
+            $tempPath = $file->store('temp/cnis', 'public');
+            $fullPath = Storage::disk('public')->path($tempPath);
             
             Log::info('Arquivo salvo', ['path' => $fullPath]);
 
