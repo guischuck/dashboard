@@ -18,11 +18,17 @@ fi
 echo "📦 Atualizando sistema..."
 sudo apt update -qq
 
+# Adicionar repositório PHP 8.1 para Ubuntu 20.04
+echo "📦 Adicionando repositório PHP..."
+sudo apt install -y software-properties-common
+sudo add-apt-repository ppa:ondrej/php -y
+sudo apt update -qq
+
 # Instalar dependências essenciais
 echo "⚙️ Instalando dependências..."
 sudo DEBIAN_FRONTEND=noninteractive apt install -y \
     nginx mysql-server php8.1-fpm php8.1-mysql php8.1-xml \
-    php8.1-mbstring php8.1-curl php8.1-zip php8.1-bcmath \
+    php8.1-mbstring php8.1-curl php8.1-zip php8.1-bcmath php8.1-cli \
     unzip git nodejs npm curl
 
 # Instalar Composer
